@@ -10,6 +10,7 @@ use std::fs::remove_file;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -19,6 +20,16 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 
 const BASE_WAIT_TIME: usize = 300;
 const MAX_WAIT_TIME: usize = 10_000;
+
+const CONNECT_TIMEOUT: usize = 300;
+const REQUEST_TIMEOUT: usize = 300;
+
+struct  ReqConf {
+    base_wait_time: usize,
+    max_wait_time: usize,
+    connect_timeout: usize,
+    request_timeout:  usize
+}
 
 /// max_files: Number of open file handles, which determines the maximum number of parallel downloads
 /// parallel_failures:  Number of maximum failures of different chunks in parallel (cannot exceed max_files)
@@ -39,6 +50,41 @@ fn download(
     headers: Option<HashMap<String, String>>,
     callback: Option<Py<PyAny>>,
 ) -> PyResult<()> {
+    return raw_download(
+        python,
+        url,
+        filename,
+        max_files,
+        chunk_size,
+        parallel_failures,
+        max_retries,
+        headers,
+        BASE_WAIT_TIME,
+        MAX_WAIT_TIME,
+        CONNECT_TIMEOUT,
+        REQUEST_TIMEOUT,
+        callback,
+    );
+}
+
+
+#[pyfunction]
+#[pyo3(signature = (url, filename, max_files, chunk_size, parallel_failures=0, max_retries=0, headers=None, base_wait_time=BASE_WAIT_TIME, max_wait_time=MAX_WAIT_TIME, connect_timeout= CONNECT_TIMEOUT, request_timeout= REQUEST_TIMEOUT,  callback=None))]
+fn raw_download(
+    python: Python,
+    url: String,
+    filename: String,
+    max_files: usize,
+    chunk_size: usize,
+    parallel_failures: usize,
+    max_retries: usize,
+    headers: Option<HashMap<String, String>>,
+    base_wait_time: usize,
+    max_wait_time: usize,
+    connect_timeout: usize,
+    request_timeout: usize,
+    callback: Option<Py<PyAny>>,
+) -> PyResult<()> {
     if parallel_failures > max_files {
         return Err(PyException::new_err(
             "Error parallel_failures cannot be > max_files".to_string(),
@@ -50,6 +96,14 @@ fn download(
                 .to_string(),
         ));
     }
+
+    let rc = ReqConf{
+        base_wait_time,
+        max_wait_time,
+        connect_timeout,
+        request_timeout,
+    };
+    
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -63,6 +117,7 @@ fn download(
                 parallel_failures,
                 max_retries,
                 headers,
+                rc,
                 callback,
             )
             .await
@@ -154,9 +209,15 @@ async fn download_async(
     parallel_failures: usize,
     max_retries: usize,
     input_headers: Option<HashMap<String, String>>,
+    rc: ReqConf,
     callback: Option<Py<PyAny>>,
 ) -> PyResult<()> {
-    let client = reqwest::Client::new();
+    // let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(rc.connect_timeout.try_into().unwrap()))
+        .timeout(Duration::from_secs(rc.request_timeout.try_into().unwrap()))
+        .build()
+        .map_err(|err| PyException::new_err(format!("Error while create client: {err:?}")))?;
 
     let mut headers = HeaderMap::new();
     if let Some(input_headers) = input_headers {
@@ -231,7 +292,7 @@ async fn download_async(
                         ))
                     })?;
 
-                    let wait_time = exponential_backoff(BASE_WAIT_TIME, i, MAX_WAIT_TIME);
+                    let wait_time = exponential_backoff(rc.base_wait_time, i, rc.max_wait_time);
                     sleep(tokio::time::Duration::from_millis(wait_time as u64)).await;
 
                     chunk = download_chunk(&client, &url, &filename, start, stop, headers.clone()).await;
@@ -437,6 +498,7 @@ async fn upload_chunk(
 #[pymodule]
 fn hf_transfer(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(download, m)?)?;
+    m.add_function(wrap_pyfunction!(raw_download, m)?)?;
     m.add_function(wrap_pyfunction!(multipart_upload, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
