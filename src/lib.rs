@@ -212,12 +212,11 @@ async fn download_async(
     rc: ReqConf,
     callback: Option<Py<PyAny>>,
 ) -> PyResult<()> {
-    let client = reqwest::Client::new();
-    // let client = reqwest::Client::builder()
-    //     .connect_timeout(Duration::from_secs(rc.connect_timeout.try_into().unwrap()))
-    //     .timeout(Duration::from_secs(rc.request_timeout.try_into().unwrap()))
-    //     .build()
-    //     .map_err(|err| PyException::new_err(format!("Error while create client: {err:?}")))?;
+        let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(rc.connect_timeout.try_into().unwrap()))
+        .timeout(Duration::from_secs(rc.request_timeout.try_into().unwrap()))
+        .build()
+        .map_err(|err| PyException::new_err(format!("Error while create client: {err:?}")))?;
 
     let mut headers = HeaderMap::new();
     if let Some(input_headers) = input_headers {
@@ -497,7 +496,7 @@ async fn upload_chunk(
 /// A Python module implemented in Rust.
 #[pymodule]
 fn hf_transfer(_py: Python, m: &PyModule) -> PyResult<()> {
-    // m.add_function(wrap_pyfunction!(download, m)?)?;
+    m.add_function(wrap_pyfunction!(download, m)?)?;
     m.add_function(wrap_pyfunction!(raw_download, m)?)?;
     m.add_function(wrap_pyfunction!(multipart_upload, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
