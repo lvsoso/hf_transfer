@@ -48,3 +48,14 @@ hf = HfApi()
 hf.upload_file(path_or_fileobj="/path/to/my/repo/some_file", path_in_repo="some_file", repo_id="my/repo", repo_type="model")
 ```
 
+## format
+
+```json
+    "rust-analyzer.rustfmt.extraArgs": [
+        "--config",
+        "max_width=80"
+    ],
+    "editor.rulers": [
+        80
+    ]
+```

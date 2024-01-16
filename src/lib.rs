@@ -4,7 +4,9 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 use rand::{thread_rng, Rng};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
+use reqwest::header::{
+    HeaderMap, HeaderName, HeaderValue, CONTENT_LENGTH, CONTENT_RANGE, RANGE,
+};
 use std::collections::HashMap;
 use std::fs::remove_file;
 use std::io::SeekFrom;
@@ -24,11 +26,11 @@ const MAX_WAIT_TIME: usize = 10_000;
 const CONNECT_TIMEOUT: usize = 300;
 const REQUEST_TIMEOUT: usize = 300;
 
-struct  ReqConf {
+struct ReqConf {
     base_wait_time: usize,
     max_wait_time: usize,
     connect_timeout: usize,
-    request_timeout:  usize
+    request_timeout: usize,
 }
 
 /// max_files: Number of open file handles, which determines the maximum number of parallel downloads
@@ -67,7 +69,6 @@ fn download(
     );
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (url, filename, max_files, chunk_size, parallel_failures=0, max_retries=0, headers=None, base_wait_time=BASE_WAIT_TIME, max_wait_time=MAX_WAIT_TIME, connect_timeout= CONNECT_TIMEOUT, request_timeout= REQUEST_TIMEOUT,  callback=None))]
 fn raw_download(
@@ -97,13 +98,13 @@ fn raw_download(
         ));
     }
 
-    let rc = ReqConf{
+    let rc = ReqConf {
         base_wait_time,
         max_wait_time,
         connect_timeout,
         request_timeout,
     };
-    
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -196,7 +197,11 @@ fn jitter() -> usize {
     thread_rng().gen_range(0..=500)
 }
 
-pub fn exponential_backoff(base_wait_time: usize, n: usize, max: usize) -> usize {
+pub fn exponential_backoff(
+    base_wait_time: usize,
+    n: usize,
+    max: usize,
+) -> usize {
     (base_wait_time + n.pow(2) + jitter()).min(max)
 }
 
@@ -212,21 +217,25 @@ async fn download_async(
     rc: ReqConf,
     callback: Option<Py<PyAny>>,
 ) -> PyResult<()> {
-        let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(rc.connect_timeout.try_into().unwrap()))
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(
+            rc.connect_timeout.try_into().unwrap(),
+        ))
         .timeout(Duration::from_secs(rc.request_timeout.try_into().unwrap()))
         .build()
-        .map_err(|err| PyException::new_err(format!("Error while create client: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while create client: {err:?}"))
+        })?;
 
     let mut headers = HeaderMap::new();
     if let Some(input_headers) = input_headers {
         for (k, v) in input_headers {
-            let k: HeaderName = k
-                .try_into()
-                .map_err(|err| PyException::new_err(format!("Invalid header: {err:?}")))?;
-            let v: HeaderValue = v
-                .try_into()
-                .map_err(|err| PyException::new_err(format!("Invalid header value: {err:?}")))?;
+            let k: HeaderName = k.try_into().map_err(|err| {
+                PyException::new_err(format!("Invalid header: {err:?}"))
+            })?;
+            let v: HeaderValue = v.try_into().map_err(|err| {
+                PyException::new_err(format!("Invalid header value: {err:?}"))
+            })?;
             headers.insert(k, v);
         }
     };
@@ -237,14 +246,18 @@ async fn download_async(
         .header(RANGE, "bytes=0-0")
         .send()
         .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
 
     let content_range = response
         .headers()
         .get(CONTENT_RANGE)
         .ok_or(PyException::new_err("No content length"))?
         .to_str()
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
 
     let size: Vec<&str> = content_range.split('/').collect();
     // Content-Range: bytes 0-0/702517648
@@ -255,11 +268,14 @@ async fn download_async(
             "Error while downloading: No size was detected",
         ))?
         .parse()
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
 
     let mut handles = FuturesUnordered::new();
     let semaphore = Arc::new(Semaphore::new(max_files));
-    let parallel_failures_semaphore = Arc::new(Semaphore::new(parallel_failures));
+    let parallel_failures_semaphore =
+        Arc::new(Semaphore::new(parallel_failures));
 
     let chunk_size = chunk_size;
     for start in (0..length).step_by(chunk_size) {
@@ -340,26 +356,33 @@ async fn download_chunk(
         .create(true)
         .open(filename)
         .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
     file.seek(SeekFrom::Start(start as u64))
         .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
     let response = client
         .get(url)
         .headers(headers)
         .header(RANGE, range)
         .send()
         .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?
         .error_for_status()
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
-    let content = response
-        .bytes()
-        .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
-    file.write_all(&content)
-        .await
-        .map_err(|err| PyException::new_err(format!("Error while downloading: {err:?}")))?;
+        .map_err(|err| {
+            PyException::new_err(format!("Error while downloading: {err:?}"))
+        })?;
+    let content = response.bytes().await.map_err(|err| {
+        PyException::new_err(format!("Error while downloading: {err:?}"))
+    })?;
+    file.write_all(&content).await.map_err(|err| {
+        PyException::new_err(format!("Error while downloading: {err:?}"))
+    })?;
     Ok(())
 }
 
@@ -377,7 +400,8 @@ async fn upload_async(
 
     let mut handles = FuturesUnordered::new();
     let semaphore = Arc::new(Semaphore::new(max_files));
-    let parallel_failures_semaphore = Arc::new(Semaphore::new(parallel_failures));
+    let parallel_failures_semaphore =
+        Arc::new(Semaphore::new(parallel_failures));
 
     for (part_number, part_url) in parts_urls.iter().enumerate() {
         let url = part_url.to_string();
@@ -422,7 +446,8 @@ async fn upload_async(
                 }));
     }
 
-    let mut results: Vec<HashMap<String, String>> = vec![HashMap::default(); parts_urls.len()];
+    let mut results: Vec<HashMap<String, String>> =
+        vec![HashMap::default(); parts_urls.len()];
 
     while let Some(result) = handles.next().await {
         match result {
@@ -485,7 +510,9 @@ async fn upload_chunk(
             value
                 .to_str()
                 .map_err(|err| {
-                    PyException::new_err(format!("Response header contains non ASCII chars: {err}"))
+                    PyException::new_err(format!(
+                        "Response header contains non ASCII chars: {err}"
+                    ))
                 })?
                 .to_owned(),
         );
